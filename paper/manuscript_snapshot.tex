@@ -1,0 +1,285 @@
+\documentclass[11pt]{article}
+% Layout adapted from the user's local_dispersion.tex.
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[utf8]{inputenc}
+\usepackage{amssymb,amsmath,bm,amsthm}
+\usepackage{mathrsfs,verbatim}
+\usepackage{caption,float,booktabs,array}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx,subcaption}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{xurl}
+\usepackage[colorlinks=true,urlcolor=blue,linkcolor=blue,citecolor=blue]{hyperref}
+\topmargin -.75in \textwidth 6.5in \oddsidemargin -.05in \textheight 9.3in
+\newcommand{\Q}{\mathcal Q}
+\newcommand{\T}{\mathcal T}
+\newcommand{\A}{\mathcal A}
+\newcommand{\V}{\mathcal V}
+\newcommand{\N}{\mathcal N}
+\newcommand{\ind}{\mathbf 1}
+\newcommand{\ST}{\mathrm{ST}}
+\newcommand{\SC}{\mathrm{SC}}
+\newcommand{\CQRA}{\mathrm{CQRA}}
+\newcommand{\eqdist}{\operatorname{dist}}
+\newtheorem{proposition}{Proposition}[section]
+\newtheorem{remark}{Remark}[section]
+\frenchspacing
+\setlength{\emergencystretch}{1.5em}
+\date{}
+% Author and affiliation intentionally omitted, as in the supplied template.
+\author{}
+\title{\bf Augmenting Quantile Forecast Ensembles with Similar-Trajectory Quantiles: A Controlled Traffic Study}
+	\author{\.{I}lker Arslan\footnote{MEF University, Department of Mechanical Engineering, Istanbul, Turkey. email: arslanil@mef.edu.tr}
+	\hspace{0.2in} \"{U}m\.{i}t I\c{s}lak\footnote{Bo\u{g}azi\c{c}i University, Mathematics Department, Istanbul, Turkey. email: umit.islak1@bogazici.edu.tr}\footnote{Middle East Technical University, Institute of Applied Mathematics, Ankara, Turkey. email: uislak@metu.edu.tr}}
+\date{}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+Historical trajectories offer a simple source of predictive quantiles, but their value inside an existing quantile ensemble requires controls that distinguish state matching from merely adding another forecast. We augment constrained quantile regression averaging (CQRA), based on quantile regression forests and quantile gradient boosting, with empirical quantiles of outcomes following similar trajectories (ST). A fixed five-minute forecasting experiment uses 20 previously unexamined PeMS03 stations and compares ST with random and calendar only candidate selection from the same historical library. A second experiment uses all 365 days of 2019 source data and a new 73-day test period at 14 sensor IDs available from the original panel. ST reduces the equal-station mean relative interval score by 2.77\% and 3.46\% at 90\% and 95\% nominal coverage in 2018, and by 1.36\% and 2.08\% in 2019. All six primary comparisons in each experiment favor ST after Holm adjustment. Local quantile-error correction is useful in secondary comparisons, particularly in 2019, but does not establish a general ordering against ST. The evidence supports trajectory candidates as complementary ensemble inputs within the studied panels. %It does not establish universal superiority or conditional coverage guarantees.
+
+ [\textbf{NOTE: This working note is a conference paper draft, and it is planned to  be submitted after some final editing. We attach it as a supplementary file regarding İP 2.3.}]
+\end{abstract}
+\noindent\textbf{Keywords:} quantile forecasting; similar trajectories; forecast combination; traffic flow. 
+
+\section{Introduction}
+Short-horizon traffic forecasting requires both a prediction and an account of its uncertainty. Recurring demand patterns coexist with abrupt local changes, so a forecast interval should respond to the current state while balancing width against misses. Tree-based quantile models can use many lagged observations and calendar features. A historical analogue offers a different construction: find previous trajectories resembling the current history and use the outcomes that followed them to form an empirical predictive distribution.
+
+Our question is whether this analogue information remains useful after quantile regression forests (QRF) and quantile gradient boosting (QGB) have already been combined. Improvement over a baseline ensemble alone is insufficient to attribute a gain to trajectory matching. An extra candidate changes the combination problem, and a calendar-based candidate can exploit recurring traffic schedules without matching observed traffic histories. We therefore compare similar-trajectory (ST) candidates with random and calendar-only candidates using the same training library, neighborhood size, quantile convention, and combination rule.
+
+Trajectory forecasting and constrained quantile regression averaging (CQRA) are well established ideas \cite{wang}. Our contribution is a controlled empirical study of their combination: a 20-station five-minute experiment, followed by a new-period validation using a full year of source data. The second study retains matching sensor IDs rather than selecting successful replacements. Joint time-block inference preserves common temporal variation across stations, and the primary testing family consists of the same three comparisons at two nominal interval levels.
+
+We also examine similarity-based quantile-error correction (SC). This approach estimates local quantiles of historical forecasting errors and appends corrected base forecasts to the ensemble. A non-local Global correction provides its necessary comparator. Earlier exploratory results suggested small, inconsistent correction gains. The new 2019 results are more favorable to SC. We report this change without replacing the ST-centered primary question or claiming that either similarity construction uniformly dominates the other.
+
+\section{Forecast construction}
+\subsection{Information, base models, and combination}
+Let $Y_t$ be a station's flow at target time $t$. The forecast is issued after observing $Y_{t-1}$, so the horizon is one five-minute step in our setup. We estimate the quantiles
+\[
+\Q=\{0.025,0.05,0.95,0.975\},
+\]
+which define central 90\% and 95\% intervals. The seasonal baseline is $b_t=Y_{t-288}$ and the modeling response is $R_t=Y_t-b_t$. Base regressors comprise lags 1--24, 48, 168, 288, 576, and 2016, each centered by $b_t$, the previous 12 baseline residuals, and sine/cosine coordinates for time of day, weekday, and month. The feature vector contains only lagged flow and known calendar information.
+
+QRF estimates a weighted empirical residual distribution using 65 bootstrap trees, minimum leaf size 13, and feature fraction 0.85. In-bag response multiplicities are retained in leaf weights. QGB fits one LightGBM quantile model per level, with 180 trees, learning rate 0.045, 17 leaves, minimum child count 35, column fraction 0.9, and regularization 2. Both models add $b_t$ back to their residual quantiles. The same fitted base predictions are shared by all competing ensembles.
+
+For candidate pool $\mathcal P$, CQRA minimizes tuning-period pinball loss separately at each $q$:
+\begin{equation}\label{eq:cqra}
+\widehat w_q=\arg\min_{w\geq0,\,\sum_m w_m=1}
+\sum_{t\in\V}\rho_q\!\left(Y_t-\sum_{m\in\mathcal P}w_m Q_{m,t}(q)\right),
+\qquad \rho_q(e)=e\{q-\ind(e<0)\}.
+\end{equation}
+There is no intercept. Weights are station- and quantile-specific and remain fixed throughout testing. The final four quantiles are sorted at each target to prevent crossing. This procedure combines quantile forecasts, it does not take quantiles of a mixture distribution.
+
+\subsection{ST and matched controls}
+The trajectory state is $H_t=(Y_{t-1},\ldots,Y_{t-12})$. Each coordinate is standardized using training-period means and standard deviations. Let $\N_{50}(H_t)$ contain the 50 nearest eligible training states under Euclidean distance. The candidate is
+\begin{equation}\label{eq:st}
+Q_{\ST,t}(q)=\inf\left\{z:\frac1{50}\sum_{s\in\N_{50}(H_t)}\ind(Y_s\leq z)\geq q\right\}.
+\end{equation}
+Historical responses are $Y_s$, whereas the matched state contains observations preceding $s$. All candidates come from a frozen training library. Observed test history may enter later query states, but test outcomes never enlarge the library or fit weights.
+
+The random control selects 50 training states uniformly without replacement for every query. Ten separately seeded candidates each receive a separately fitted CQRA ensemble, pointwise scores, coverage indicators, and widths are averaged across repetitions. The reported random comparator is this expected-performance approximation, not an interval obtained by averaging endpoints. Seeds are fixed, with no outcome-based seed selection.
+
+The calendar control selects the 50 nearest training states using only four equal-scale sine/cosine coordinates for time of day and weekday. Ties favor earlier historical targets. No traffic values enter calendar matching. CQRA+ST, CQRA+Random, and CQRA+Seasonal each append one candidate to the QRF--QGB pool. These controls test the value of the specified traffic-state matching beyond random selection and a particular calendar selector. Raw ST distance captures both level and shape, so they do not isolate shape alone.
+
+\subsection{Secondary correction methods}
+For base model $m$, define genuinely out-of-sample archive errors $E_{m,s}(q)=Y_s-Q_{m,s}(q)$. SC forms
+\begin{equation}\label{eq:sc}
+Q^{\SC}_{m,t}(q)=Q_{m,t}(q)+\lambda_{m,q}\,
+\widehat Q_q\{E_{m,s}(q):s\in\N_K(Z_t),\ s\in\A\}.
+\end{equation}
+The frozen archive $\A$ follows initial training and precedes tuning. For each model, tuning chooses $K\in\{50,150\}$ and either standardized residual trajectories or selected residual coordinates augmented by calendar phases. Each $\lambda_{m,q}\in\{0,0.25,0.5,0.75,1\}$ minimizes tuning pinball loss. The space and $K$ minimize its sum over four quantiles. Global uses all archive errors instead of neighbors and the same shrinkage grid. Each correction ensemble appends corrected QRF and QGB forecasts to the uncorrected pair. Corrected candidates are sorted before combination. The same tuning period selects correction parameters and combination weights, an additional source of fitting flexibility.
+
+\section{Data and evaluation protocol}
+\subsection{Two distinct traffic experiments}
+PeMS03 contains 26,208 five-minute observations at 358 stations, covering September--November 2018. We draw 20 columns without replacement from the 357 non-pilot columns using seed 20261012 before reviewing their results. The original pilot station is excluded. Every selected station is retained. Splitting the raw grid chronologically gives approximately 60\% training, 10\% error archive, 10\% tuning, and 20\% test. After lag warm-up, each station has 13,696 training, 2,621 archive, 2,621 tuning, and 5,242 test targets. The test runs from November 12 at 19:10 to Noveember 30 at 23:55.
+
+For new-period validation, we use the 2019 LargeST flow release \cite{largest}, obtained through the TorchSpatiotemporal processed-data collection. Its 105,120 timestamps cover 365 days at five-minute resolution. We perform no 15-minute aggregation. Only 14 of the original 20 sensor IDs are present. The absent IDs are 317870, 315841, 315852, 318636, 318680, and 317171. None is replaced. Method settings and selection rules remain fixed, while models and weights are fitted on the new pretest splits. The 2019 protocol is fixed before extracting target values.
+
+The 2019 raw-grid split yields training through August 7, an archive from August 8 to September 13 at 11:55, tuning from September 13 at 12:00 through October 19, and a test from October 20 through December 31. The test contains 73 days and 21,024 eligible targets per station. Missing source values remain missing, targets requiring a missing response or lag are excluded. Zeros remain valid. Training eligibility ranges from 60,726 to 60,852 and archive eligibility from 10,470 to 10,512, tuning and test are complete. This is a year-long source with an autumn/winter holdout, not a year-long test.
+
+\subsection{Scores, aggregation, and inference}
+For interval $[l,u]$ and nominal coverage $1-\alpha$, the interval (Winkler) score is
+\begin{equation}\label{eq:score}
+S_\alpha(Y;l,u)=u-l+\frac2\alpha(l-Y)\ind(Y<l)
++\frac2\alpha(Y-u)\ind(Y>u).
+\end{equation}
+Lower is better. The score penalizes narrow intervals that miss the target \cite{score}. Coverage uses inclusive endpoints. Mean widths retain the original station flow units and are descriptive across different station scales.
+
+Write $\bar L_{a,j}$ for method $a$'s mean score at station $j$. Our primary estimand is the equal-station mean relative change
+\begin{equation}\label{eq:effect}
+D(a,b)=\frac{100}{J}\sum_{j=1}^J\left(\frac{\bar L_{a,j}}{\bar L_{b,j}}-1\right).
+\end{equation}
+Negative values favor $a$. This is not the percentage change of a pooled absolute score. We also count stations with lower mean scores and report equal-station mean coverage and width.
+
+A circular block bootstrap uses 3,000 replicates and one-day blocks of 288 consecutive grid targets. Identical calendar draws are applied to all stations. The ratios in \eqref{eq:effect} are recomputed in each replicate. Individual 95\% percentile intervals accompany HAC tests based on the joint delta-method influence sequence, with Bartlett lag 288 \cite{nw}. Holm adjustment covers ST against CQRA, Random, and Seasonal at both interval levels, separately within each experiment \cite{holm}. The confidence intervals are individual, not simultaneous. Secondary comparisons and block-length sensitivity use unadjusted inference. All inference is conditional on the panel and fitted forecasts: models and stations are not resampled.
+
+\section{Results}
+\subsection{Primary controlled comparisons}
+Table~\ref{tab:main} reports all primary comparisons. ST improves on CQRA at every selected station in both experiments and at both levels. In 2018 its mean relative improvement is 2.77\% at 90\% and 3.46\% at 95\%. It also outperforms the random and calendar selectors after adjustment. At 90\%, 19 of 20 stations favor ST over each added-candidate control; at 95\%, all 20 do.
+\begin{table}[H]
+	\centering\small
+	\caption{Relative interval-score changes (\%) for CQRA+ST
+		against the indicated comparator. Negative values favor
+		CQRA+ST. Confidence intervals use joint one-day blocks;
+		$p_H$ denotes the six-test Holm-adjusted HAC $p$-value.}
+	\label{tab:main}
+	
+	\begin{tabular}{llrrrr}
+		\toprule
+		Panel / level & CQRA+ST vs. & Change (\%) &
+		Individual 95\% CI & Wins & $p_H$\\
+		\midrule
+		2018 / 90\% & CQRA & $-2.770$ &
+		[$-4.347,-1.504$] & 20/20 & 0.00104\\
+		& CQRA+Random & $-2.675$ &
+		[$-4.241,-1.363$] & 19/20 & 0.00150\\
+		& CQRA+Seasonal & $-6.028$ &
+		[$-11.302,-1.503$] & 19/20 & 0.0301\\
+		
+		2018 / 95\% & CQRA & $-3.462$ &
+		[$-5.049,-2.131$] & 20/20 &
+		$4.69\!\times\!10^{-5}$\\
+		& CQRA+Random & $-3.334$ &
+		[$-4.877,-1.961$] & 20/20 &
+		$7.72\!\times\!10^{-5}$\\
+		& CQRA+Seasonal & $-7.644$ &
+		[$-13.693,-2.250$] & 20/20 & 0.0301\\
+		
+		\midrule
+		2019 / 90\% & CQRA & $-1.363$ &
+		[$-1.689,-1.029$] & 14/14 &
+		$2.13\!\times\!10^{-14}$\\
+		& CQRA+Random & $-1.330$ &
+		[$-1.663,-0.986$] & 14/14 &
+		$1.46\!\times\!10^{-13}$\\
+		& CQRA+Seasonal & $-2.886$ &
+		[$-4.320,-1.572$] & 14/14 &
+		$6.03\!\times\!10^{-5}$\\
+		
+		2019 / 95\% & CQRA & $-2.082$ &
+		[$-2.519,-1.622$] & 14/14 &
+		$5.92\!\times\!10^{-19}$\\
+		& CQRA+Random & $-2.089$ &
+		[$-2.545,-1.603$] & 14/14 &
+		$2.21\!\times\!10^{-17}$\\
+		& CQRA+Seasonal & $-3.252$ &
+		[$-4.539,-1.989$] & 14/14 &
+		$1.42\!\times\!10^{-6}$\\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+The longer 2019 holdout supports smaller but consistent ST gains: 1.36\% and 2.08\% relative to CQRA, with 14/14 improvements against each primary comparator. Random augmentation is close to neutral, whereas calendar augmentation worsens scores on average. The controls therefore support complementary information from the specified observed-state matching. They do not establish superiority over every seasonal forecasting model or over modern network-wide traffic architectures.
+
+\subsection{Coverage, width, and correection results}
+Table~\ref{tab:metrics} reports all six ensemble variants in 2019. ST's 90\% improvement includes slightly wider intervals and higher coverage than CQRA. At 95\%, its mean width is 83.396 versus 84.921, while coverage is nearly unchanged (95.935\% versus 95.926\%). This is a favorable nominal-level score tradeoff, not a comparison at explicitly equalized coverage. Random and Seasonal achieve higher coveerage with wider intervals, but their scores are weaker. Reporting only coverage would reverse the practical impression of these controls.
+
+\begin{table}[H]
+\centering\small
+\caption{2019 equal-station summaries. Gain is mean station-relative score reduction versus CQRA. Random rows average performance across ten separately fitted ensembles.}\label{tab:metrics}
+\begin{tabular}{llrrrr}
+\toprule
+Level & Ensemble & Score & Gain (\%) & Coverage (\%) & Width\\
+\midrule
+90\% & CQRA & 89.039 & 0.000 & 91.099 & 67.797\\
+ & CQRA+ST & 87.764 & 1.363 & 91.446 & 67.928\\
+ & CQRA+Random & 89.002 & 0.034 & 91.580 & 69.001\\
+ & CQRA+Seasonal & 90.627 & $-1.603$ & 91.788 & 71.129\\
+ & CQRA+SC & 87.092 & 1.908 & 90.557 & 67.019\\
+ & CQRA+Global & 88.826 & 0.230 & 90.584 & 66.759\\
+95\% & CQRA & 106.547 & 0.000 & 95.926 & 84.921\\
+ & CQRA+ST & 104.222 & 2.082 & 95.935 & 83.396\\
+ & CQRA+Random & 106.549 & $-0.007$ & 96.198 & 86.188\\
+ & CQRA+Seasonal & 108.039 & $-1.236$ & 96.257 & 88.154\\
+ & CQRA+SC & 103.309 & 2.618 & 95.632 & 83.575\\
+ & CQRA+Global & 106.037 & 0.466 & 95.467 & 83.007\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+SC also improves all 14 stations over CQRA. Its secondary mean relative changes against Global are $-1.678\%$ (CI $[-2.423,-0.820]\%$) at 90\% and $-2.156\%$ ($[-3.053,-1.219]\%$) at 95\%. These are substantive local-correction results, stronger than the earlier pilots. However, ST-minus-SC changes are $+0.678\%$ and $+0.723\%$, with intervals $[-0.242,1.727]\%$ and $[-0.425,2.128]\%$ and unadjusted HAC $p=0.182$ and $0.270$. Their medians are negative, and ST wins at 9/14 and 10/14 stations. Mean and typical-station rankings therefore differ. Meither method has established general superiority.
+
+\subsection{Temporal and inferential sensitivity}
+Comparing the same 14 IDs descriptively, ST reductions versus CQRA decrease from 2.913\% and 3.726\% in 2018 to 1.363\% and 2.082\% in 2019. This is not a pure year effect: training duration and source preprocessing also differ. All three 2019 test-month segments favor ST over CQRA at every station. At 90\%, mean reductions are 0.879\% for October 20--31, 1.493\% for November, and 1.314\% for December. Calendar augmentation nevertheless performs better in the short October segment, illustrating that aggregate success does not imply superiority in every period.
+
+Using weekly blocks in 2019 keeps all primary percentile intervals below zero, unadjusted HAC $p$-values for ST versus Seasonal are 0.0103 and 0.00261. The shorter 2018 test is more sensitive: with two-day blocks, ST versus Seasonal has $p=0.0611$ at 90\%, although its bootstrap interval remains negative. ST against CQRA and Random remains supported. The primary block length is retained, and this sensitivity is part of the reported evidence.
+
+ 
+\section{Discussion and limitations}
+
+The results support the inclusion of similar-trajectory quantiles
+as additional candidates in a CQRA ensemble. Although enlarging
+the candidate pool cannot increase the optimized tuning loss
+before quantile sorting, this nesting property provides no
+out-of-sample guarantee. The improvements observed against
+CQRA, together with the random and calendar controls, suggest
+that the selected historical trajectories contain complementary
+predictive information. Earlier exploratory results on other
+datasets were less consistent, indicating that the benefits
+of similarity-based methods should not be assumed to be universal.
+
+Several limitations remain. The experiments involve a restricted
+set of traffic stations, and their shared temporal variation
+precludes treating them as independent datasets. Joint block
+inference accounts for temporal dependence in the reported
+comparisons, but not for all uncertainty arising from model
+fitting or station selection. The longer experiment includes
+only 14 matching stations and an autumn/winter test period,
+while the forecasting horizon remains five minutes. Moreover,
+SC and Global add two candidates whereas ST adds one, so
+their comparison does not isolate the contribution of the
+underlying similarity mechanism.
+Neither ST nor SC provides finite-sample conditional coverage
+guarantees. Conformalized quantile regression \cite{cqr}
+would therefore be a useful additional benchmark.
+
+% Further validation should consider longer forecasting horizons,
+%different traffic networks, multiple seasonal holdouts,
+%and adaptive trajectory-selection rules. The implementation
+%was independently audited, including forecast reconstruction,
+%score calculations, station alignment, and checks against
+%information leakage. Full-precision results and experimental
+%protocols are retained in the experiment records to support
+%reproducibility.
+
+\section{Conclusion}
+Across a fixed 20-station traffic panel and a new 73-day holdout at 14 matching sensors, empirical similar-trajectory quantiles provide complementary inputs to CQRA beyond random and calendar-only candidates. Improvements persist with dependence-aware primary inference and are accompanied by explicit coverage and width summaries. The longer validation also supports local quantile-error correction against a non-local comparator, while leaving its overall ordering against ST unresolved. The resulting claim is a controlled, panel-specific benefit of similarity information in quantile ensembles, with further validation needed across sources, seasons, and horizons.
+
+	\bigskip
+
+\textbf{Acknowledgements.} Both authors have been supported by
+the Scientific and Technological Research Council of Turkey
+T\"UB\.{I}TAK Grant No. 124F023.
+
+\begin{thebibliography}{9}
+\small
+\bibitem{arslan} \.I. Arslan, C.~H. Da\u{g}{\i}d{\i}r, and \"U. I\c{s}lak.
+An overview of time series point and interval forecasting based on similarity of trajectories, with an experimental study on traffic flow forecasting.
+\emph{arXiv:2309.10613}, 2023. \url{https://arxiv.org/abs/2309.10613}.
+\bibitem{wang} Y. Wang, N. Zhang, Y. Tan, T. Hong, D. Kirschen, and C. Kang.
+Combining probabilistic load forecasts. \emph{arXiv:1803.06730}, 2018.
+\url{https://arxiv.org/abs/1803.06730}.
+\bibitem{qrf} N. Meinshausen. Quantile regression forests.
+\emph{Journal of Machine Learning Research}, 7:983--999, 2006.
+\url{https://www.jmlr.org/papers/v7/meinshausen06a.html}.
+\bibitem{score} T. Gneiting and A.~E. Raftery. Strictly proper scoring rules, prediction, and estimation.
+\emph{Journal of the American Statistical Association}, 102(477):359--378, 2007.
+\href{https://doi.org/10.1198/016214506000001437}{doi:10.1198/016214506000001437}.
+\bibitem{largest} X. Liu, Y. Xia, Y. Liang, J. Hu, Y. Wang, L. Bai, C. Huang, Z. Liu, B. Hooi, and R. Zimmermann.
+LargeST: A benchmark dataset for large-scale traffic forecasting.
+\emph{Advances in Neural Information Processing Systems}, Datasets and Benchmarks Track, 2023.
+\url{https://arxiv.org/abs/2306.08259}.
+\bibitem{nw} W.~K. Newey and K.~D. West.
+A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix.
+\emph{Econometrica}, 55(3):703--708, 1987.
+\url{https://www.jstor.org/stable/1913610}.
+\bibitem{holm} S. Holm. A simple sequentially rejective multiple test procedure.
+\emph{Scandinavian Journal of Statistics}, 6(2):65--70, 1979.
+\url{https://www.jstor.org/stable/4615733}.
+\bibitem{cqr} Y. Romano, E. Patterson, and E.~J. Cand\`es. Conformalized quantile regression.
+\emph{Advances in Neural Information Processing Systems}, 32, 2019.
+\url{https://arxiv.org/abs/1905.03222}.
+\end{thebibliography}
+
+\end{document}
